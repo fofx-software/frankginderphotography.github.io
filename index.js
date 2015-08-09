@@ -24,8 +24,7 @@ njn.controller('sidebar', { indexRanges: indexRanges });
 
 // Detect whether the location hash contains an index range, in the form of
 // #/[startNum]-[endNum]. It may not be present when the site is first
-// loaded, so we'll provide a fallback array in case there is no match.
-// This fallback defaults to the first index range in the ranges array
+// loaded, so we'll default to the first index range in the ranges array
 // defined above:
 var indexRange = (location.hash.match(/#\/([0-9]+-[0-9]+)/) || ['',indexRanges[0]])[1];
 var rangeStart = +indexRange.split('-')[0];
@@ -47,10 +46,10 @@ for(var i = rangeStart; i <= rangeEnd; i++) {
 njn.controller('photo-gallery', { photos: photos });
 njn.controller('showcases', { photos: photos, indexRange: indexRange });
 
-var photoGallery   = document.getElementById('photo-gallery');
-var showcases      = document.getElementById('showcases');
-var leftClick      = document.getElementById('left-click');
-var rightClick     = document.getElementById('right-click');
+var photoGallery = document.getElementById('photo-gallery');
+var showcases    = document.getElementById('showcases');
+var leftClick    = document.getElementById('left-click');
+var rightClick   = document.getElementById('right-click');
 
 function loadAhead(photoId) {
   var startNum = +photoId.match(/[0-9]+/)[0];
@@ -63,10 +62,28 @@ function loadAhead(photoId) {
   }
 }
 
-var positionedShowcases = {};
+var positionedShowcases = {
+  forEach: function(callback) {
+    njn.Array.forEach([this.left, this.center, this.right], function(showcase, i) {
+      if(showcase) {
+        callback.call(null, showcase, i);
+      }
+    });
+  },
+  set: function(position, showcase) {
+    if(this[position]) {
+      this[position].position = '';
+      this[position].className = 'showcase';
+    }
+    showcase.position = position;
+    showcase.photoNumber = Number(showcase.getAttribute('data-photo').match(/[0-9]+/)[0]);
+    showcase.className = position + ' showcase';
+    this[position] = showcase;
+  }
+};
 
 function setHrefs() {
-  var idNum = +positionedShowcases.center.getAttribute('data-photo').match(/[0-9]+/)[0];
+  var idNum = positionedShowcases.center.photoNumber;
   var leftNum = idNum - 1, rightNum = idNum < max ? idNum + 1 : 1;
 
   leftClick.href = '#/' +
@@ -88,27 +105,21 @@ function setHrefs() {
   + '/photo_' + rightNum;
 }
 
-function clearTransform(element) {
-  element.className = 'showcase';
-  element.style.webkitTransform = 'translateX(0%)';
-  element.style.mozTransform    = 'translateX(0%)';
-  element.style.msTransform     = 'translateX(0%)';
-  element.style.oTransform      = 'translateX(0%)';
-  element.style.transform       = 'translateX(0%)';
-}
-
-function clearShowcasePositions() {
-  njn.Array.forEach(['left', 'center', 'right'], function(position) {
-    var previouslyAssigned = positionedShowcases[position];
-    if(previouslyAssigned) {
-      clearTransform(previouslyAssigned);
-    }
-  });
+function clearTransform(showcase) {
+  if(!showcase) {
+    positionedShowcases.forEach(clearTransform);
+  } else {
+    showcase.className = showcase.position + ' showcase';
+    showcase.style.webkitTransform = 'none';
+    showcase.style.mozTransform    = 'none';
+    showcase.style.msTransform     = 'none';
+    showcase.style.oTransform      = 'none';
+    showcase.style.transform       = 'none';
+  }
 }
 
 function transformPositionedShowcases(pctOffset) {
-  njn.Array.forEach(['left', 'center', 'right'], function(position, i) {
-    var showcase = positionedShowcases[position];
+  positionedShowcases.forEach(function(showcase, i) {
     if(showcase) {
       showcase.style.webkitTransform = 'translateX(' + (i * 100 + (pctOffset || 0)) + '%)';
       showcase.style.mozTransform    = 'translateX(' + (i * 100 + (pctOffset || 0)) + '%)';
@@ -120,14 +131,14 @@ function transformPositionedShowcases(pctOffset) {
 }
 
 function loadShowcase(photoId) {
-  clearShowcasePositions();
+  clearTransform();
   var photoNum = +photoId.match(/[0-9]+/)[0];
   for(var i = -1; i < 2; i++) {
     var currPhoto = 'photo_' + (photoNum + i);
     var showcase = showcases.querySelector('[data-photo="' + currPhoto + '"]');
-    if(i == -1 && showcase) positionedShowcases.left = showcase;
-    if(i == 0) positionedShowcases.center = showcase;
-    if(i == 1 && showcase) positionedShowcases.right = showcase;
+    if(i == -1 && showcase) positionedShowcases.set('left', showcase);
+    if(i == 0) positionedShowcases.set('center', showcase);
+    if(i == 1 && showcase) positionedShowcases.set('right', showcase);
   }
   transformPositionedShowcases();
   setHrefs();
@@ -142,7 +153,6 @@ window.addEventListener('hashchange', function() {
   // on clicking one of the group links, the index range part of the
   // hash is changes, so load the new group:
   var newRange = location.hash.match(/#\/([0-9]+-[0-9]+)/);
-  var photoId = location.hash.match(/photo_[0-9]+/);
   if(newRange && newRange[1] !== indexRange) {
     location.reload();
   } else {
@@ -151,13 +161,11 @@ window.addEventListener('hashchange', function() {
       var isShown = photoId[0] == positionedShowcases.center.getAttribute('data-photo');
       if(showcases.style.display != 'block' || !isShown) {
         loadShowcase(photoId[0]);
-      } else {
-        setHrefs();
       }
     } else {
       // if a fullsized image was clicked, the photo_id part of the hash
       // was removed, so hide #showcases:
-      clearShowcasePositions();
+      clearTransform();
       showcases.style.display = 'none';
     }
   }
@@ -170,49 +178,72 @@ photoGallery.addEventListener('click', function(e) {
   }
 }, false);
 
-function setTransitionClass(element) {
+var globalTransition = '400ms linear',
+    inTransition;
+
+function setTransition(element) {
   if(!element) { return; }
   njn.Array.forEach(
     ['transitionend', 'webkitTransitionEnd', 'oTransitionEnd', 'otransitionend'],
     function(transitionName) {
       element.addEventListener(transitionName, function transitionEnd() {
-        element.className = 'showcase';
+        clearTransition(element);
+        // reset globalTransition in case it was changed ontouchend:
+        globalTransition = '400ms linear';
         element.removeEventListener(transitionName, transitionEnd, false);
+        setHrefs();
+        inTransition = false;
       }, false);
-      element.className = 'showcase in-transition';
+      element.style.webkitTransition = '-webkit-transform ' + globalTransition;
+         element.style.mozTransition =    '-moz-transform ' + globalTransition;
+          element.style.msTransition =     '-ms-transform ' + globalTransition;
+           element.style.oTransition =      '-o-transform ' + globalTransition;
+            element.style.transition =         'transform ' + globalTransition;
+      inTransition = true;
     }
   );
 }
 
+function clearTransition(element) {
+  element.style.webkitTransition = '';
+  element.style.mozTransition    = '';
+  element.style.msTransition     = '';
+  element.style.oTransition      = '';
+  element.style.transition       = '';
+}
+
+function slideShowcase(goDir) {
+  var oppDir = goDir == 'left' ? 'right' : 'left';
+  
+  if(positionedShowcases[oppDir]) {
+    clearTransition(positionedShowcases[oppDir]);
+    clearTransform(positionedShowcases[oppDir]);
+  }
+  
+  positionedShowcases.set(oppDir, positionedShowcases.center);
+  setTransition(positionedShowcases[oppDir]);
+  positionedShowcases.center = undefined;
+  
+  positionedShowcases.set('center', positionedShowcases[goDir]);
+  setTransition(positionedShowcases.center);
+  positionedShowcases[goDir] = undefined;
+  
+  var upOrDown = goDir == 'left' ? -2 : 2;
+  var newNextPhotoId = positionedShowcases[oppDir].photoNumber + upOrDown;
+  var newNextPhoto = showcases.querySelector('[data-photo="photo_' + newNextPhotoId + '"]');
+  if(newNextPhoto) positionedShowcases.set(goDir, newNextPhoto);
+  
+  if(positionedShowcases.center) {
+    transformPositionedShowcases();
+    loadAhead(positionedShowcases.center.getAttribute('data-photo'));
+  }
+}
+
 showcases.addEventListener('click', function(e) {
-  var idMatch = e.target.id.match(/left|right/);
-  if(idMatch) {
-    njn.Array.forEach(['left', 'center', 'right'], function(position) {
-      if(positionedShowcases[position]) {
-        positionedShowcases[position].className = 'showcase';
-      }
-    });
-    var previouslyShown = positionedShowcases.center;
-    var oppositeDir = idMatch[0] == 'left' ? 'right' : 'left';
-
-    if(positionedShowcases[oppositeDir]) {
-      clearTransform(positionedShowcases[oppositeDir]);
-    }
-
-    positionedShowcases[oppositeDir] = previouslyShown;
-    setTransitionClass(previouslyShown);
-    positionedShowcases.center = positionedShowcases[idMatch[0]];
-    setTransitionClass(positionedShowcases.center);
-
-    var upOrDown = idMatch[0] == 'left' ? -2 : 2;
-    var newNextPhotoId = +previouslyShown.getAttribute('data-photo').match(/[0-9]+/)[0] + upOrDown;
-    var newNextPhoto = showcases.querySelector('[data-photo="photo_' + newNextPhotoId + '"]');
-    positionedShowcases[idMatch[0]] = newNextPhoto;
-
-    if(positionedShowcases.center) {
-      transformPositionedShowcases();    
-      loadAhead(positionedShowcases.center.getAttribute('data-photo'));
-    }
+  var idMatch = (e.target.id || '').match(/left|right/);
+  var hashpart = (e.target.href || '').match(/#.+/) || [];
+  if(hashpart[0] !== location.hash && idMatch) {
+    slideShowcase(idMatch[0]);
   }
 }, false);
 
@@ -263,46 +294,61 @@ photoGallery.addEventListener('touchstart', function(e) {
 var firstTouch = {};
 
 showcases.addEventListener('touchstart', function(e) {
-  // iOS safari reuses touch objects across events, so store properties in separate object:
-  njn.Array.forEach(['left', 'center', 'right'], function(position) {
-    positionedShowcases[position].className = 'showcase';
-  });
-  firstTouch.screenX = e.changedTouches[0].screenX;
-  firstTouch.screenY = e.changedTouches[0].screenY;
-  firstTouch.time = Date.now();
+  var isNavClick = e.target.id.match(/left|right/);
+  if(!inTransition && !isNavClick) {
+    // clear css transition so finger controls translation:
+    // positionedShowcases.forEach(clearTransition);
+    // iOS safari reuses touch objects across events, so store properties in separate object:
+    firstTouch.screenX = e.changedTouches[0].screenX;
+    firstTouch.screenY = e.changedTouches[0].screenY;
+    firstTouch.inTransition = false;
+    firstTouch.isNavClick = false;
+    firstTouch.time = Date.now();
+  } else if(!isNavClick) {
+    firstTouch.inTransition = true;
+  } else {
+    firstTouch.isNavClick = true;
+  }
 }, false);
 
 showcases.addEventListener('touchmove', function(e) {
-  var currTouch = e.changedTouches[0];
-  // Ensure this is a one touch swipe and not, e.g. a pinch:
-  if (currTouch.length > 1 || (e.scale && e.scale !== 1)) {
-    return;
-  }
-  var deltaX = currTouch.screenX - firstTouch.screenX,
-      deltaY = currTouch.screenY - firstTouch.screenY,
-      isVertical = Math.abs(deltaY) > Math.abs(deltaX);
-  if(isVertical) {
-    // shownShowcase.style.top = deltaY + 'px';
-  } else {
-    // disable horizontal scrolling:
-    e.preventDefault();
-    var widthRatio = deltaX / window.innerWidth * 100;
-    transformPositionedShowcases(widthRatio);
+  if(!firstTouch.inTransition && !firstTouch.isNavClick) {
+    var currTouch = e.changedTouches[0];
+    // Ensure this is a one touch swipe and not, e.g. a pinch:
+    if (currTouch.length > 1 || (e.scale && e.scale !== 1)) {
+      return;
+    }
+    var deltaX = currTouch.screenX - firstTouch.screenX,
+        deltaY = currTouch.screenY - firstTouch.screenY,
+        isVertical = Math.abs(deltaY) > Math.abs(deltaX);
+    if(isVertical) {
+      // shownShowcase.style.top = deltaY + 'px';
+    } else {
+      // disable horizontal scrolling:
+      e.preventDefault();
+      var widthRatio = deltaX / window.innerWidth * 100;
+      transformPositionedShowcases(widthRatio);
+    }
   }
 }, false);
 
 showcases.addEventListener('touchend', function(e) {
-  var currTouch = e.changedTouches[0];
-  var deltaX = currTouch.screenX - firstTouch.screenX,
-      deltaY = currTouch.screenY - firstTouch.screenY,
-      isVertical = Math.abs(deltaY) > Math.abs(deltaX);
-  var quickSwipe = Date.now() - firstTouch.time < 250 && Math.abs(deltaX) > 20;
-  var halfScreen = Math.abs(deltaX) > window.innerWidth / 2;
-  var navSwipe = quickSwipe || halfScreen;
-  if(navSwipe) {
-    navigatePhotos(deltaX > 0 ? 'left' : 'right');
-  } else {
-    transformPositionedShowcases();
+  if(!firstTouch.inTransition && !firstTouch.isNavClick) {
+    var currTouch = e.changedTouches[0];
+    var deltaX = currTouch.screenX - firstTouch.screenX,
+        deltaY = currTouch.screenY - firstTouch.screenY,
+        isVertical = Math.abs(deltaY) > Math.abs(deltaX);
+    var quickSwipe = Date.now() - firstTouch.time < 250 && Math.abs(deltaX) > 20;
+    var halfScreen = Math.abs(deltaX) > window.innerWidth / 2;
+    var navSwipe = quickSwipe || halfScreen;
+    if(navSwipe) {
+      globalTransition = Math.round((window.innerWidth - Math.abs(deltaX)) / window.innerWidth * 400) + 'ms linear';
+      navigatePhotos(deltaX > 0 ? 'left' : 'right');
+    } else {
+      globalTransition = Math.round(Math.abs(deltaX) / window.innerWidth * 400) + 'ms linear';
+      positionedShowcases.forEach(setTransition);
+      transformPositionedShowcases();
+    }
   }
 }, false);
 

@@ -121,7 +121,7 @@ a:hover {
   position: absolute;
   height: 100%;
   width: 100%;
-  background: rgba(0, 0, 0, 0.75) url(./loading.gif) center no-repeat;
+  background: url(./loading.gif) center no-repeat;
   background-size: 64px 64px;
 }
 
