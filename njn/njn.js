@@ -1,25 +1,5 @@
 var njn = {};
 
-// Object.create to inherit, so njn.registeredControllers' ownProperties are only the added controllers:
-
-njn.registeredControllers = Object.create({
-  asArray: function() {
-    return(Object.keys(njn.registeredControllers).map(function(controllerName) {
-      return njn.registeredControllers[controllerName];
-    }));
-  },
-
-  watching: function(collection) {
-    return(njn.registeredControllers.asArray().filter(function(controller) {
-      return controller.watching === collection;
-    }));
-  },
-});
-
-njn.registerController = function(controllerName, controller) {
-  this.registeredControllers[njn.camelCase(controllerName)] = controller;
-}
-
 // utilities:
 
 njn.isArray = function(value) {
@@ -136,22 +116,31 @@ njn.isBlank = function(string) {
   return emptyString || whiteSpace;
 }
 
-njn.Array = {
-  find: function(array, fn, thisArg) {
-    if(array.find) return array.find(fn, thisArg);
-    for(var i = 0; i < array.length; i++) {
-      if(fn.call(thisArg, array[i], i, array)) {
-        return array[i];
-      }
+njn.Array = function(listObject) {
+  var sliced = Array.prototype.slice.call(listObject);
+  sliced.forEach = njn.Array.forEach.bind(null, sliced);
+  return sliced;
+}
+  
+njn.Array.find = function(array, fn, thisArg) {
+  if(array.find) return array.find(fn, thisArg);
+  for(var i = 0; i < array.length; i++) {
+    if(fn.call(thisArg, array[i], i, array)) {
+      return array[i];
     }
-  },
-  forEach: function(array, fn, thisArg) {
-    if(array.forEach) return array.forEach(fn, thisArg);
+  }
+};
+
+njn.Array.forEach = function(array, fn, thisArg) {
+  if(Array.prototype.forEach) {
+    Array.prototype.forEach.call(array, fn, thisArg);
+  } else {
     for(var i = 0; i < array.length; i++) {
       fn.call(thisArg, array[i], i, array);
     }
   }
 }
+
 
 njn.String = {
   keepSplit: function(str, delim) {
