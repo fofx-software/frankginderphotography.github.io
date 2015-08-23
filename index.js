@@ -129,7 +129,7 @@ function loadAhead(photoInd) {
     var currInd = photoInd + diffs[i];
     var showcase = showcases.querySelector('[data-photoind="' + currInd + '"]');
     if(showcase) {
-      showcase.getElementsByTagName('img')[0].src = 'photos/' + registeredPhotos[currInd] + '.jpg';
+      showcase.getElementsByTagName('img')[0].src = 'photos/' + registeredPhotos[currInd - 1] + '.jpg';
     }
   }
 }

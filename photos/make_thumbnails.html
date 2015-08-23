@@ -53,17 +53,14 @@
           };
           reader.readAsDataURL(file);
         });
-        var keys = Object.keys(registeredPhotos);
-        keys.sort(function(a, b) { return a - b; });
         Array.prototype.forEach.call(files, function(file, i) {
-          registeredPhotos[keys.length + i + 1] = file.name.match(/.+(?=\.)/)[0];
+          registeredPhotos.push(file.name.match(/.+(?=\.)/)[0]);
         });
-        keys = Object.keys(registeredPhotos);
-        var stringified = 'var registeredPhotos = {\n\n' +
-          keys.map(function(key) {
-            return key + ': "' + registeredPhotos[key] + '"';
+        var stringified = 'var registeredPhotos = [\n\n' +
+          registeredPhotos.map(function(filename) {
+            return '"' + filename + '"';
           }).join(",\n") +
-        '\n\n};'
+        '\n\n];'
         var blob = new Blob([stringified], {type:'text/plain'});
         var a = document.createElement('a');
         a.download = 'photos.js';
