@@ -93,15 +93,6 @@ njn.hasProperty = function(obj, propertyName) {
   }
 }
 
-njn.camelCase = function(string) {
-  var splitString = string.split(/[-_ ]/);
-  for(var i = 1; i < splitString.length; i++) {
-    var firstLetter = splitString[i].slice(0, 1).toUpperCase();
-    splitString[i] = firstLetter + splitString[i].slice(1);
-  }
-  return splitString.join('');
-}
-
 // test this:
 
 njn.unCamel = function(string, joiner) {
@@ -117,16 +108,21 @@ njn.isBlank = function(string) {
 }
 
 njn.Array = function(listObject) {
-  var sliced = Array.prototype.slice.call(listObject);
-  sliced.forEach = njn.Array.forEach.bind(null, sliced);
+  var sliced = Array.prototype.slice.call(listObject || []);
+  njn.Array.forEach(['forEach', 'find'], function(fnName) {
+    sliced[fnName] = njn.Array[fnName].bind(null, sliced);
+  });
   return sliced;
-}
-  
+};
+
 njn.Array.find = function(array, fn, thisArg) {
-  if(array.find) return array.find(fn, thisArg);
-  for(var i = 0; i < array.length; i++) {
-    if(fn.call(thisArg, array[i], i, array)) {
-      return array[i];
+  if(Array.prototype.find) {
+    return Array.prototype.find.call(array, fn, thisArg);
+  } else {
+    for(var i = 0; i < array.length; i++) {
+      if(fn.call(thisArg, array[i], i, array)) {
+        return array[i];
+      }
     }
   }
 };
@@ -157,6 +153,14 @@ njn.String = {
       }
     });
     return allTogether;
+  },
+  camelCase: function(string) {
+    var splitString = string.split(/[-_ ]/);
+    for(var i = 1; i < splitString.length; i++) {
+      var firstLetter = splitString[i].slice(0, 1).toUpperCase();
+      splitString[i] = firstLetter + splitString[i].slice(1);
+    }
+    return splitString.join('');
   }
 }
 

@@ -17,7 +17,18 @@ njn.registeredControllers = Object.create({
 });
 
 njn.registerController = function(controllerName, controller) {
-  this.registeredControllers[njn.camelCase(controllerName)] = controller;
+  this.registeredControllers[njn.String.camelCase(controllerName)] = controller;
+}
+
+njn.getData = function(element) {
+  var dataset = {};
+  njn.Array(element.attributes).forEach(function(attr) {
+    if(attr.name.match(/^data-njn/)) {
+      var newName = njn.String.camelCase(attr.name.replace(/^data-njn/, ''));
+      dataset[newName] = attr.value;
+    }
+  });
+  return dataset;
 }
   
 njn.Controller = function NJNController() { }
@@ -41,73 +52,186 @@ njn.controller = function(controllerName, viewInterface) {
 njn.Controller.prototype.loadTemplate = function(template) {
   this.template = template;
   this.parentElement = template.parentElement;
-  return this.refreshView();
+  buildView(this.template, this.viewInterface, '', this);
+};
+
+njn.createEvent = function(name, options) {
+  options = options || { bubbles: false, cancelable: false };
+  if(Event) {
+    return new Event(name, options);
+  } else {
+    var event = document.createEvent('Event');
+    refreshEvent.initEvent(name, !!options.bubbles, !!options.cancelable);
+  }
+}
+
+var refreshEvent = njn.createEvent('refresh');
+
+function buildView(element, resolveIn, interpolator, controller) {
+  var dataset = njn.getData(element),
+      parentElement = element.parentElement,
+      nextSibling = element.nextSibling;
+  if(dataset.repeat && !element.template) {
+    var listName = dataset.repeat;
+    var list     = resolveValue(listName, resolveIn);
+    parentElement.removeChild(element);
+    if(list.length) {
+      element.clones = njn.Array();
+      njn.Array(list).forEach(function(listMember) {
+        var clone = element.cloneNode(true);
+        var re    = new RegExp(interpolatorRE.join(listName + ':'), 'g');
+        clone.template = element;
+        element.clones.push(clone);
+        buildView(clone, listMember, re, controller);
+        parentElement.insertBefore(clone, nextSibling);
+      });
+    }
+  } else {
+    if(!element.template) element.template = element.cloneNode();
+    processNode(element, resolveIn, interpolator, controller);
+    njn.Array(element.childNodes).forEach(function(child) {
+      buildView(child, resolveIn, interpolator, controller);
+    });
+  }
 }
 
 njn.Controller.prototype.refreshView = function() {
-  var processed = processHTML(this.template, this.viewInterface);
-  var liveElement = document.getElementById(this.name);
+  this.liveElement = document.getElementById(this.name);
+  var processed = processNode(this.liveElement, this.viewInterface, '', this);
   //liveElement.outerHTML = stripBracketsAndTripleBraces(liveElement.outerHTML).replace(/data-njnsrc/g, 'src');
-  return document.getElementById(this.name);
+  return this.liveElement;
+};
+
+njn.Controller.prototype.route = function(routeRE, action, noMatch) {
+  window.addEventListener('hashchange', (function() {
+    if(location.hash.match(routeRE)) {
+      action.call(this, routeRE);
+    } else if(noMatch) {
+      noMatch.call(this);
+    }
+  }).bind(this), false);
+};
+  
+njn.Controller.prototype.addEventListeners = function(events, handler) {
+  if(arguments.length > 1) {
+    if(njn.isArray(events)) {
+      njn.Array(events).forEach(function(event) {
+        this.addEventListeners(event, handler);
+      }, this);
+    } else if(njn.isObject(events)) {
+      njn.Array(events.events || [events.event]).forEach(function(event) {
+        events.target.addEventListener(event, handler.bind(this), false);
+      }, this);
+      if(events.callNow) handler.call(this);
+    }
+  } else {
+    njn.Array(events).forEach(function(subArray) {
+      this.addEventListeners(subArray[0], subArray[1]);
+    }, this);
+  }
+  return this;
+};
+  
+njn.Controller.prototype.get = function(query) {
+  return query ? this.template.querySelector(query) : this.template;
+}
+
+njn.Controller.prototype.all = function(query) {
+  return this.template.querySelectorAll(query);
 }
 
 var interpolatorRE = ['\\{\\{', '[!=]?\\w+(?:\\?|(?:\\+|\\-)[0-9]*)?\\}\\}(?!\\})'];
 
-function processHTML(element, resolveIn, interpolator) {
-  interpolator = interpolator || new RegExp(interpolatorRE.join(''), 'g');
-  njn.Array(element.attributes).forEach(function(attribute) {
-    var processed = processText(attribute.value, resolveIn, interpolator);
-    var trueName = attribute.name;
-    if(trueName == 'data-njnsrc' && !processed.match(/\{\{/)) {
-      trueName = 'src';
+function refreshNode(element, resolveIn, interpolator, controller) {
+  if(!element.parentElement) return;
+  if(element.template && element.template.clones) {
+    var indexOf = element.template.clones.indexOf(element);
+    if(element.template.clones[indexOf + 1]) {
+      element = element.template;
     }
-    element.setAttribute(trueName, processed);
-  });
-  njn.Array(element.childNodes).forEach(function(childNode) {
-    processNode(childNode, resolveIn, interpolator);
-  });
-}
-  
-function processNode(childNode, resolveIn, interpolator) {
-  if(childNode.nodeType == 3) {
-    var newText = processText(childNode.textContent, resolveIn, interpolator);
-    var newNode = document.createTextNode(newText);
-    childNode.parentElement.replaceChild(newNode, childNode);
-  } else {
-    processHTML(childNode, resolveIn, interpolator);
-    if(childNode.hasAttribute('data-njnrepeat')) {
-      var listName      = childNode.getAttribute('data-njnrepeat');
-      var list          = resolveValue(listName, resolveIn);
-      var namespacedRE  = new RegExp(interpolatorRE.join(listName + ':'), 'g');
-      var parentElement = childNode.parentElement;
-      var nextSibling   = childNode.nextSibling;
-      parentElement.removeChild(childNode);
+  }
+  if(element.clones) {
+    var dataset = njn.getData(element);
+    var nextSibling = element.clones.slice(-1)[0].nextSibling,
+        parentElement = element.clones[0].parentElement;
+    element.clones.forEach(function(clone) {
+      parentElement.removeChild(clone);
+    });
+    var listName = dataset.repeat;
+    var list     = resolveValue(listName, resolveIn);
+    if(list.length) {
+      var re = new RegExp(interpolatorRE.join(listName + ':'), 'g');
+      element.clones = njn.Array();
       njn.Array(list).forEach(function(listMember) {
-        var clone = childNode.cloneNode(true);
-        processHTML(clone, listMember, namespacedRE);
+        var clone = element.cloneNode(true);
+        element.clones.push(clone);
         parentElement.insertBefore(clone, nextSibling);
+        clone.template = element;
+        processNode(clone, listMember, re, controller);
+        (function processChildren(realParent, cloneParent) {
+          njn.Array(realParent.childNodes).forEach(function(realChild, i) {
+            var cloneChild = cloneParent.childNodes[i];
+            cloneChild.template = realChild;
+            processNode(cloneChild, listMember, re, controller);
+            if(realChild.childNodes.length) {
+              processChildren(realChild, cloneChild);
+            }
+          });
+        })(element, clone);
+      });
+    }
+  } else {
+    processNode(element, resolveIn, interpolator, controller);
+    njn.Array(element.childNodes).forEach(function(child) {
+      refreshNode(child, resolveIn, interpolator, controller);
+    });
+  }
+}
+
+function processNode(element, resolveIn, interpolator, controller) {
+  interpolator = interpolator || new RegExp(interpolatorRE.join(''), 'g');
+  if(element.nodeType == 3) {
+    var oldText = element.textContent;
+    element.textContent = processText(element.textContent, resolveIn, interpolator);
+  } else {
+    var hidden = showByRoute(element, resolveIn, interpolator, controller);
+    if(!hidden) {
+      njn.Array(element.template.attributes).forEach(function(attribute) {
+        var processed = processText(attribute.value, resolveIn, interpolator);
+        var trueName = attribute.name;
+        if(trueName == 'data-njnsrc' && !processed.match(/\{\{/)) trueName = 'src';
+        element.setAttribute(trueName, processed);
       });
     }
   }
 }
 
-//function repeatElements(parentElement, resolveIn, listName) {
-//  var selector = '[data-njnrepeat' + (listName ? '^=' + listName : '') + ']';
-//  var repeaters = parentElement.querySelectorAll(selector);
-//  for(i = 0; i < repeaters.length; i++) {
-//    var repeater = repeaters[i];
-//    var listNameRegExp = new RegExp('(?:' + listName + ':)?(.+)');
-//    var newListName = repeater.getAttribute('data-njnrepeat').match(listNameRegExp)[1];
-//    var list = resolveValue(newListName, resolveIn);
-//    var html = '';
-//    for(var j = 0; j < list.length; j++) {
-//      html += processHTML(repeater, list[j], newListName);
-//    }
-//    repeater.outerHTML = html;
-//  }
-//}
-//
-//function processHTML (elementOrHTML, resolveIn, listName) {
+var alreadyAdded = [];
+
+function showByRoute(element, resolveIn, interpolator, controller) {
+  var showAttr = element.getAttribute('data-njnshow'),
+      hideAttr = element.getAttribute('data-njnhide'),
+      routeName = showAttr || hideAttr;
+  if(routeName) {
+    element.style.display =
+      showAttr && location.hash != routeName ? 'none' :
+      hideAttr && location.hash == routeName ? 'none' :
+      '';
+    if(alreadyAdded.indexOf(element) == -1) {
+      controller.route(
+        /./,
+        function() {
+          refreshNode(element, controller.viewInterface, '', controller);
+          controller.get().dispatchEvent(refreshEvent);
+        }
+      );
+      alreadyAdded.push(element);
+    }
+  }
+  return !!element.style.display;
+}
+
+//function processNode (elementOrHTML, resolveIn, listName) {
 //  var html = '';
 //  html = elementOrHTML.outerHTML || elementOrHTML;
 //  var interpolator = new RegExp(interpolatorRE.join(listName ? listName + ':' : ''), 'g');

@@ -6,10 +6,10 @@
 
 var indexRanges = [],
     max = Object.keys(registeredPhotos).length,
-    groupsOf = window.innerWidth < 551 ? 11 : 23;
+    groupsOf = window.innerWidth < 709 ? 11 : 23;
 
 (function() {
-  // will reuse rangeEnd and rangeStart below, so segregate them in a function scope here:
+  // will reuse rangeEnd and rangeStart below, so isolate them in a function scope here:
   for(var rangeEnd = 1, rangeStart = 1; rangeEnd <= max; rangeEnd++) {
     if(rangeEnd - rangeStart === groupsOf || rangeEnd === max) {
       indexRanges.push(rangeStart + '-' + rangeEnd);
@@ -25,42 +25,104 @@ njn.controller('sidebar', { indexRanges: indexRanges });
 // #/[startNum]-[endNum]. It may not be present when the site is first
 // loaded, so we'll default to the first index range in the ranges array
 // defined above:
-var indexRange = location.hash.match(/[0-9]+-[0-9]+/);
 
-if(!indexRange) {
-  if(!location.hash.match(/contact/)) {
-    indexRange = indexRanges[0];
-  }
-} else {
-  indexRange = indexRange[0];
+var indexRange = function() {
+  return (location.hash.match(/[0-9]+-[0-9]+/) || indexRanges)[0];
 }
 
-if(indexRange) {
-  var rangeStart = +indexRange.split('-')[0];
-  var rangeEnd = +indexRange.split('-')[1];
-  
+var rangeStart = function() { return +indexRange().split('-')[0]; }
+var rangeEnd   = function() { return +indexRange().split('-')[1]; }
+
+var photosInRange = function() {
   var photos = [];
-  
-  for(var i = rangeStart; i <= rangeEnd; i++) {
+  for(var i = rangeStart(); i <= rangeEnd(); i++) {
     var id = registeredPhotos[i];
     photos.push({
       src:        'photos/' + id + '.jpg',
-      href:       '#/' + indexRange + '/' + i,
+      href:       '#/' + indexRange() + '/' + i,
       thumbnail:  'photos/thumbnails/' + id + '.png',
       photoInd:   i
     });
   }
-  
-  njn.controller('thumbnail-gallery', { photos: photos });
-  njn.controller('showcases', { photos: photos, indexRange: indexRange });
+
+  return photos;
 }
+  
+var thumbnailGallery = njn.controller('thumbnail-gallery', {
+  photos: photosInRange
+});
 
 var photoGallery = document.getElementById('thumbnail-gallery');
 var showcases    = document.getElementById('showcases');
 var leftClick    = document.getElementById('left-click');
 var rightClick   = document.getElementById('right-click');
-var scrollbar    = document.getElementById('scrollbar');
-var scroller     = scrollbar.firstElementChild;
+
+njn.controller('showcases', {
+  photos: photosInRange,
+  indexRange: indexRange
+}).route(
+  /\/([0-9]+)$/,
+  function(re) {
+    var photoInd = +location.hash.match(re)[1];
+    if(!this.get().style.display) {
+      njn.Array(thumbnailGallery.all('.thumbnail-grid-square')).forEach(function(gridSquare) {
+        gridSquare.className = 'thumbnail-grid-square-no-hover';
+      });
+      this.get().style.display = 'block';
+    }
+    loadShowcase(photoInd);
+  },
+  function() {
+    this.get().style.display = '';
+  }
+);
+
+///////////////
+// scrollbar //
+///////////////
+
+var scrollbar = njn.controller('scrollbar')
+  .addEventListeners(
+    [
+      { target: window, event: 'resize', callNow: true },
+      { target: thumbnailGallery.get(), event: 'refresh' }
+    ],
+    function() {
+      var scroller = this.get('div');
+      var heightRatio = Math.round(photoGallery.clientHeight / photoGallery.scrollHeight * 100);
+      if(heightRatio < 100) {
+        this.get().style.display = '';
+        scroller.style.height = heightRatio + '%';
+        scroller.style.top = Math.round(photoGallery.scrollTop / photoGallery.scrollHeight * 100) + '%';
+      } else {
+        this.get().style.display = 'none';
+      }
+    }
+  );
+
+thumbnailGallery.get().addEventListener('scroll', function() {
+  scrollbar.get('div').style.top = Math.round(photoGallery.scrollTop / photoGallery.scrollHeight * 100) + '%';
+}, false);
+
+scrollbar.get('div').addEventListener('mousedown', function(e) {
+  var startY = e.pageY,
+      startScroll = photoGallery.scrollTop;
+  window.addEventListener('mousemove', function handleMove(e2) {
+    e2.preventDefault();
+    scrollbar.get('div').className = 'hovered';
+    var scrolledRatio = (e2.pageY - startY) / scrollbar.get().clientHeight;
+    thumbnailGallery.get().scrollTop = startScroll + scrolledRatio * thumbnailGallery.get().scrollHeight;
+    window.addEventListener('mouseup', function handleUp() {
+      window.removeEventListener('mousemove', handleMove, false);
+      window.removeEventListener('mouseup', handleUp, false);
+      scrollbar.get('div').className = '';
+    });
+  });
+}, false);
+
+///////////////////
+// end scrollbar //
+///////////////////
 
 function loadAhead(photoInd) {
   for(var i = 0, diffs = [0, 1, -1, 2, -2]; i < 5; i++) {
@@ -74,10 +136,8 @@ function loadAhead(photoInd) {
 
 var positionedShowcases = {
   forEach: function(callback) {
-    njn.Array.forEach([this.left, this.center, this.right], function(showcase, i) {
-      if(showcase) {
-        callback.call(null, showcase, i);
-      }
+    njn.Array([this.left, this.center, this.right]).forEach(function(showcase, i) {
+      if(showcase) callback(showcase, i);
     });
   },
   set: function(position, showcase) {
@@ -98,7 +158,7 @@ function setHrefs() {
 
   leftClick.href = '#/' +
     (
-      leftNum >= rangeStart ? indexRange :
+      leftNum >= rangeStart() ? indexRange() :
       (
         leftNum ? Math.max(leftNum - groupsOf, 1) + '-' + leftNum : max - groupsOf + '-' + max
       )
@@ -107,7 +167,7 @@ function setHrefs() {
 
   rightClick.href = '#/' +
     (
-      idNum < rangeEnd ? indexRange :
+      idNum < rangeEnd() ? indexRange() :
       (
         idNum < max ? rightNum + '-' + Math.min(rightNum + groupsOf, max) : indexRanges[0]
       )
@@ -163,44 +223,36 @@ function loadShowcase(photoInd) {
 //var photoInd = location.hash.match(/\/([0-9]+)$/);
 //if(photoInd && photoInd[1]) loadShowcase(+photoInd[1]);
 
-(window.onhashchange = function() {
-  // on clicking one of the group links, the index range part of the
-  // hash is changes, so load the new group:
-  var newRange = location.hash.match(/[0-9]+-[0-9]+/);
-  if(newRange && newRange[0] !== indexRange) {
-    location.reload();
-  } else if(location.hash.match(/contact/)) {
-    indexRange = '';
-    document.getElementById('hide-scrollbar').innerHTML =
-      '<img class="selfp" src="photos/selfp.jpg">' +
-      '<b class="email">fginder@hotmail.com</cb>';
-    scroller.style.display = 'none';
-  } else {
-    var photoInd = location.hash.match(/\/([0-9]+)$/);
-    if(photoInd && photoInd[1]) {
-      var isShown = positionedShowcases.center &&
-        photoInd[1] == positionedShowcases.center.getAttribute('data-photoind');
-      if(showcases.style.display != 'block' || !isShown) {
-        loadShowcase(+photoInd[1]);
-      }
-    } else {
-      // if a fullsized image was clicked, the photo_id part of the hash
-      // was removed, so hide #showcases:
-      clearTransform();
-      showcases.style.display = 'none';
-      var noHover = document.getElementsByClassName('thumbnail-grid-square-no-hover');
-      (noHover[0] || noHover).className = 'thumbnail-grid-square';
-    }
-  }
-})();
-
-photoGallery.addEventListener('click', function(e) {
-  var photoInd = e.target.getAttribute('data-photoind');
-  if(photoInd) {
-    e.target.parentElement.parentElement.className = 'thumbnail-grid-square-no-hover';
-    loadShowcase(+photoInd);
-  }
-}, false);
+//(window.onhashchange = function() {
+//  // on clicking one of the group links, the index range part of the
+//  // hash is changes, so load the new group:
+//  var newRange = location.hash.match(/[0-9]+-[0-9]+/);
+//  if(newRange && newRange[0] !== indexRange) {
+//    location.reload();
+//  } else if(location.hash.match(/contact/)) {
+//    indexRange = '';
+//    document.getElementById('hide-scrollbar').innerHTML =
+//      '<img class="selfp" src="photos/selfp.jpg">' +
+//      '<b class="email">fginder@hotmail.com</b>';
+//    scroller.style.display = 'none';
+//  } else {
+//    var photoInd = location.hash.match(/\/([0-9]+)$/);
+//    if(photoInd && photoInd[1]) {
+//      var isShown = positionedShowcases.center &&
+//        photoInd[1] == positionedShowcases.center.getAttribute('data-photoind');
+//      if(showcases.style.display != 'block' || !isShown) {
+//        loadShowcase(+photoInd[1]);
+//      }
+//    } else {
+//      // if a fullsized image was clicked, the photo_id part of the hash
+//      // was removed, so hide #showcases:
+//      clearTransform();
+//      showcases.style.display = 'none';
+//      var noHover = document.getElementsByClassName('thumbnail-grid-square-no-hover');
+//      (noHover[0] || noHover).className = 'thumbnail-grid-square';
+//    }
+//  }
+//})();
 
 var globalTransition = '400ms linear',
     inTransition;
@@ -402,35 +454,15 @@ showcases.addEventListener('touchcancel', function(e) {
   firstTouch = {};
 }, false);
 
-photoGallery.addEventListener('scroll', function() {
-  scroller.style.top = Math.round(photoGallery.scrollTop / photoGallery.scrollHeight * 100) + '%';
-}, false);
-
-(window.onresize = function() {
-  var heightRatio = Math.round(photoGallery.clientHeight / photoGallery.scrollHeight * 100);
-  if(heightRatio < 100) {
-    scroller.style.height = heightRatio + '%';
-    scroller.style.top = Math.round(photoGallery.scrollTop / photoGallery.scrollHeight * 100) + '%';
-  } else {
-    scroller.style.display = 'none';
-  }
-})();
-
-scroller.addEventListener('mousedown', function(e) {
-  var startY = e.pageY,
-      startScroll = photoGallery.scrollTop;
-  window.addEventListener('mousemove', function handleMove(e2) {
-    e2.preventDefault();
-    scroller.className = 'hovered';
-    var scrolledRatio = (e2.pageY - startY) / scrollbar.clientHeight;
-    photoGallery.scrollTop = startScroll + scrolledRatio * photoGallery.scrollHeight;
-    window.addEventListener('mouseup', function handleUp() {
-      window.removeEventListener('mousemove', handleMove, false);
-      window.removeEventListener('mouseup', handleUp, false);
-      scroller.className = '';
-    });
-  });
-}, false);
+//(window.onresize = function() {
+//  var heightRatio = Math.round(photoGallery.clientHeight / photoGallery.scrollHeight * 100);
+//  if(heightRatio < 100) {
+//    scroller.style.height = heightRatio + '%';
+//    scroller.style.top = Math.round(photoGallery.scrollTop / photoGallery.scrollHeight * 100) + '%';
+//  } else {
+//    scroller.style.display = 'none';
+//  }
+//})();
 
 var sidebarContent = document.getElementById('sidebar-content');
 var tm = document.getElementById('tm');

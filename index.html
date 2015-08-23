@@ -32,7 +32,11 @@
         </div>
         <div id="hide-scrollbar">
           <div id="thumbnail-gallery">
-            <div data-njnrepeat="photos" class="thumbnail-grid-square">
+            <div data-njnshow="#/contact">
+              <img class="selfp" data-njnsrc="photos/selfp.jpg">
+              <b class="email">fginder@hotmail.com</b>
+            </div>
+            <div data-njnhide="#/contact" data-njnrepeat="photos" class="thumbnail-grid-square">
               <a class="thumbnail-link" href="{{photos:href}}">
                 <img height="250" width="250" data-photoind="{{photos:photoInd}}" data-njnsrc="{{photos:thumbnail}}" class="thumbnail">
               </a>
@@ -44,7 +48,7 @@
         </div>
       </div>
     </div>
-    <div id="showcases">
+    <div id="showcases" data-njnhide="#/contact">
       <a data-njnrepeat="photos" class="showcase" data-photoind="{{photos:photoInd}}" href="#/{{indexRange}}">
         <img class="fullsize">
       </a>
