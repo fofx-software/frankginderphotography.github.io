@@ -158,7 +158,7 @@ a:hover {
   margin: auto;
 }
 
-.thumbnail-grid-square, .thumbnail-grid-square-no-hover {
+.thumbnail-grid-square {
   position: relative;
   display: inline-block;
   width: 250px;
@@ -166,21 +166,21 @@ a:hover {
   margin: 5px;
 }
 
-.thumbnail-grid-square .thumbnail-link, .thumbnail-grid-square-no-hover .thumbnail-link {
+.thumbnail-grid-square .thumbnail-link {
   position: absolute;
 }
 
 @media (min-width: 449px) {
-  .thumbnail-grid-square:hover {
+  [class="thumbnail-grid-square"]:hover {
     z-index: 1;
   }
-  
-  .thumbnail-grid-square:hover .thumbnail-link {
+
+  [class="thumbnail-grid-square"]:hover .thumbnail-link {
     left: -25px;
     top: -25px;
   }
-  
-  .thumbnail-grid-square:hover .thumbnail {
+
+  [class="thumbnail-grid-square"]:hover .thumbnail {
     height: 300px;
     width: 300px;
   }

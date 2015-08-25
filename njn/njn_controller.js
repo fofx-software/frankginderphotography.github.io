@@ -23,12 +23,28 @@ njn.registerController = function(controllerName, controller) {
 njn.getData = function(element) {
   var dataset = {};
   njn.Array(element.attributes).forEach(function(attr) {
-    if(attr.name.match(/^data-njn/)) {
-      var newName = njn.String.camelCase(attr.name.replace(/^data-njn/, ''));
+    if(attr.name.match(/^data-/)) {
+      var newName = njn.String.camelCase(attr.name.replace(/^data-/, ''));
       dataset[newName] = attr.value;
     }
   });
   return dataset;
+}
+
+njn.addClass = function(element, className) {
+  var splitClass = element.className.split(' ');
+  if(splitClass.indexOf(className) < 0) {
+    element.className = splitClass.concat(className).join(' ');
+  }
+}
+
+njn.removeClass = function(element, className) {
+  var splitClass = element.className.split(' ');
+  var indexOf = splitClass.indexOf(className);
+  if(indexOf > -1) {
+    splitClass.splice(indexOf, 1);
+    element.className = splitClass.join(' ');
+  }
 }
   
 njn.Controller = function NJNController() { }
@@ -38,6 +54,40 @@ njn.controller = function(controllerName, viewInterface) {
 
   controller.viewInterface = viewInterface || (njn.isObject(controllerName) ? controllerName : {});
   controller.viewInterface.controller = controller;
+
+  var oldUrl = '',
+      hashChangeHandlers = njn.Array();
+
+  window.addEventListener('load', function() {
+    var handleHashChange = function() {
+      hashChangeHandlers.forEach(function(handler) {
+        handler(oldUrl);
+      });
+      oldUrl = location.hash;
+    };
+    window.addEventListener('hashchange', handleHashChange, false);
+    handleHashChange();
+  }, false);
+
+  controller.route = function(routeRE, action, noMatch) {
+    var checkHash = (function(oldUrl) {
+      var oldMatch = oldUrl.match(routeRE);
+      var match = location.hash.match(routeRE);
+      if(match && (!oldMatch || oldMatch[0] != match[0])) {
+        action.call(this, match, oldMatch);
+      } else if(oldMatch && !match && noMatch) {
+        noMatch.call(this);
+      }
+    }).bind(this);
+    if(arguments.length == 1) {
+      njn.Array(arguments[0]).forEach(function(subArray) {
+        this.route(subArray[0], subArray[1], subArray[2]);
+      }, this);
+    } else {
+      hashChangeHandlers.push(checkHash);
+    }
+    return this;
+  };
 
   if(njn.isString(controllerName)) {
     controller.name = controllerName;
@@ -61,18 +111,20 @@ njn.createEvent = function(name, options) {
     return new Event(name, options);
   } else {
     var event = document.createEvent('Event');
-    refreshEvent.initEvent(name, !!options.bubbles, !!options.cancelable);
+    event.initEvent(name, !!options.bubbles, !!options.cancelable);
+    return event;
   }
 }
 
-var refreshEvent = njn.createEvent('refresh');
+var refresh = njn.createEvent('refresh', { bubbles: true });
+var viewChange = njn.createEvent('viewChange', { bubbles: true });
 
 function buildView(element, resolveIn, interpolator, controller) {
   var dataset = njn.getData(element),
       parentElement = element.parentElement,
       nextSibling = element.nextSibling;
-  if(dataset.repeat && !element.template) {
-    var listName = dataset.repeat;
+  if(dataset.njnrepeat && !element.template) {
+    var listName = dataset.njnrepeat;
     var list     = resolveValue(listName, resolveIn);
     parentElement.removeChild(element);
     if(list.length) {
@@ -101,16 +153,6 @@ njn.Controller.prototype.refreshView = function() {
   //liveElement.outerHTML = stripBracketsAndTripleBraces(liveElement.outerHTML).replace(/data-njnsrc/g, 'src');
   return this.liveElement;
 };
-
-njn.Controller.prototype.route = function(routeRE, action, noMatch) {
-  window.addEventListener('hashchange', (function() {
-    if(location.hash.match(routeRE)) {
-      action.call(this, routeRE);
-    } else if(noMatch) {
-      noMatch.call(this);
-    }
-  }).bind(this), false);
-};
   
 njn.Controller.prototype.addEventListeners = function(events, handler) {
   if(arguments.length > 1) {
@@ -122,7 +164,9 @@ njn.Controller.prototype.addEventListeners = function(events, handler) {
       njn.Array(events.events || [events.event]).forEach(function(event) {
         events.target.addEventListener(event, handler.bind(this), false);
       }, this);
-      if(events.callNow) handler.call(this);
+      if(events.callNow) {
+        window.addEventListener('load', handler.bind(this), false);
+      }
     }
   } else {
     njn.Array(events).forEach(function(subArray) {
@@ -141,6 +185,10 @@ njn.Controller.prototype.all = function(query) {
 }
 
 var interpolatorRE = ['\\{\\{', '[!=]?\\w+(?:\\?|(?:\\+|\\-)[0-9]*)?\\}\\}(?!\\})'];
+  
+njn.Controller.prototype.refreshView = function() {
+  refreshNode(this.get(), this.viewInterface, '', this);
+}
 
 function refreshNode(element, resolveIn, interpolator, controller) {
   if(!element.parentElement) return;
@@ -157,7 +205,7 @@ function refreshNode(element, resolveIn, interpolator, controller) {
     element.clones.forEach(function(clone) {
       parentElement.removeChild(clone);
     });
-    var listName = dataset.repeat;
+    var listName = dataset.njnrepeat;
     var list     = resolveValue(listName, resolveIn);
     if(list.length) {
       var re = new RegExp(interpolatorRE.join(listName + ':'), 'g');
@@ -186,23 +234,25 @@ function refreshNode(element, resolveIn, interpolator, controller) {
       refreshNode(child, resolveIn, interpolator, controller);
     });
   }
+  element.dispatchEvent(refresh);
+  element.dispatchEvent(viewChange);
 }
 
 function processNode(element, resolveIn, interpolator, controller) {
-  interpolator = interpolator || new RegExp(interpolatorRE.join(''), 'g');
+  var standardRE = new RegExp(interpolatorRE.join(''), 'g');
   if(element.nodeType == 3) {
     var oldText = element.textContent;
-    element.textContent = processText(element.textContent, resolveIn, interpolator);
+    element.textContent = processText(element.textContent, controller.viewInterface, standardRE);
+    element.textContent = processText(element.textContent, resolveIn, interpolator || standardRE);
   } else {
-    var hidden = showByRoute(element, resolveIn, interpolator, controller);
-    if(!hidden) {
-      njn.Array(element.template.attributes).forEach(function(attribute) {
-        var processed = processText(attribute.value, resolveIn, interpolator);
-        var trueName = attribute.name;
-        if(trueName == 'data-njnsrc' && !processed.match(/\{\{/)) trueName = 'src';
-        element.setAttribute(trueName, processed);
-      });
-    }
+    showByRoute(element, resolveIn, interpolator, controller);
+    njn.Array(element.template.attributes).forEach(function(attribute) {
+      var processed = processText(attribute.value, controller.viewInterface, standardRE);
+      processed = processText(processed, resolveIn, interpolator || standardRE);
+      var trueName = attribute.name;
+      if(trueName == 'data-njnsrc' && !processed.match(/\{\{/)) trueName = 'src';
+      element.setAttribute(trueName, processed);
+    });
   }
 }
 
@@ -221,8 +271,13 @@ function showByRoute(element, resolveIn, interpolator, controller) {
       controller.route(
         /./,
         function() {
-          refreshNode(element, controller.viewInterface, '', controller);
-          controller.get().dispatchEvent(refreshEvent);
+          var origDisplay = element.style.display;
+          if(location.hash === routeName) {
+            element.style.display = (showAttr ? '' : 'none');
+          } else {
+            element.style.display = (hideAttr ? '' : 'none');
+          }
+          element.dispatchEvent(viewChange);
         }
       );
       alreadyAdded.push(element);
